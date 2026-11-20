@@ -410,6 +410,7 @@ function sheet2(){
     </div>
     ${(P.deg==='tue'||P.deg==='disparu')?'<p class="tip">L’animal choisi sera marqué mort à cette date dans ta basse-cour.</p>':''}
     <button class="btn" style="margin-top:12px" data-act="savepred">Enregistrer</button></div>`}
+  if(S.sheet==='sac')return sacSheet();
   return''}
 function grabPred(){const P=S.predForm;if(!P)return;const g=id=>{const el=document.getElementById(id);return el?el.value:undefined};
   if(g('pr_h')!==undefined)P.h=g('pr_h');if(g('pr_deg')!==undefined)P.deg=g('pr_deg');if(g('pr_vic')!==undefined)P.victime=g('pr_vic');if(g('pr_note')!==undefined)P.note=g('pr_note').trim()}
@@ -875,8 +876,55 @@ function vAlim(){
       <div class="field"><label>🐓 Coq (g/jour) · ${nC}</label><input id="cs_coq" type="number" inputmode="numeric" value="${c.coq}"></div>
       <div class="field"><label>🐣 Poussin (g/jour) · ${nPo}</label><input id="cs_poussin" type="number" inputmode="numeric" value="${c.poussin}"></div>
     </div><p class="tip" style="margin:8px 0 0">Une poule pondeuse mange environ 110 à 130 g par jour, un peu plus en hiver. Les restes de cuisine font baisser la consommation.</p></div>
-  ${achats.length?`<div class="card"><h2>Historique des achats</h2>${achats.slice(0,30).map(x=>`<div class="row"><span>${esc(x.type)} · ${fmt(x.kg,x.kg%1?1:0)} kg<br><span class="m">${dShort(x.date)}${Number(x.kg)>0&&x.prix?' · '+eur(x.prix/x.kg)+'/kg':''}</span></span><span><b>${eur(x.prix||0)}</b> <button class="x" data-act="delachat" data-id="${x.id}" aria-label="Supprimer">×</button></span></div>`).join('')}</div>`:''}`;
+  ${sacsCard()}
+  ${achats.length?`<div class="card"><h2>Mes sacs</h2>${achats.slice(0,30).map(x=>{const e=sacEtat(x),st=sacStats(x),grit=x.type==='Coquilles / grit';return`<div class="row"><span>${e==='fini'?'✅':e==='ouvert'?'📦':'🛍️'} ${esc(x.type)} · ${fmt(x.kg,x.kg%1?1:0)} kg<br><span class="m">${e==='fini'?`${dShort(x.ouvert||x.date)} → ${dShort(x.fini)} · <b style="color:var(--ink)">${st.j} jours</b>`:e==='ouvert'?`ouvert le ${dShort(x.ouvert)} · depuis ${diffDays(x.ouvert,today())} j`:`acheté le ${dShort(x.date)} · pas encore ouvert`}${x.prix?' · '+eur(x.prix):''}</span></span><span style="display:flex;align-items:center;gap:4px;flex:none">${!grit&&e==='stock'?`<button class="btn ghost small" data-act="sacopen" data-id="${x.id}">Ouvrir</button>`:''}${!grit&&e!=='fini'?`<button class="btn small" data-act="sacfini" data-id="${x.id}">Fini</button>`:''}${e==='fini'?`<button class="x" data-act="sacundo" data-id="${x.id}" aria-label="Annuler la fin" title="Annuler">↺</button>`:''}<button class="x" data-act="delachat" data-id="${x.id}" aria-label="Supprimer">×</button></span></div>`}).join('')}</div>`:''}`;
 }
+/* ---------- durée des sacs ---------- */
+function sacEtat(x){return x.fini?'fini':x.ouvert?'ouvert':'stock'}
+function sacDuree(x){const o=x.ouvert||x.date;return x.fini?Math.max(1,diffDays(o,x.fini)):null}
+function animauxEq(d1,d2){const c=alimConf();let s=0,n=0;for(let d=d1;d<=d2;d=addDays(d,1)){s+=consoJour(d)*1000/c.poule;n++}return n?s/n:0}
+function sacStats(x){const j=sacDuree(x);if(!j)return null;const kgj=Number(x.kg)/j;const eq=animauxEq(x.ouvert||x.date,addDays(x.fini,-1));return{j,kgj,gPoule:eq?kgj*1000/eq:null}}
+function sacsFinis(){return(S.aliment.achats||[]).filter(x=>x.fini&&x.type!=='Coquilles / grit')}
+function dureeParType(){const r={};sacsFinis().forEach(x=>{const st=sacStats(x);if(!st)return;const t=r[x.type]||(r[x.type]={n:0,j:0,kg:0,g:[]});t.n++;t.j+=st.j;t.kg+=Number(x.kg);if(st.gPoule)t.g.push(st.gPoule)});return r}
+function sacPrevision(x){
+  const o=x.ouvert||x.date;const D=dureeParType()[x.type];
+  let jours=null,src='';
+  if(D&&D.kg){jours=Math.round(Number(x.kg)/(D.kg/D.j));src='d’après tes sacs précédents'}
+  else{const cj=consoJour(today());if(cj>0){jours=Math.round(Number(x.kg)/cj);src='estimation'}}
+  return jours?{fin:addDays(o,jours),jours,depuis:diffDays(o,today()),src}:null}
+function sacSheet(){
+  const F=S.sacForm,x=(S.aliment.achats||[]).find(a=>a.id===F.id);if(!x)return'';
+  const fin=F.action==='fini';
+  return`<div class="sheetbg" data-act="closesheet"></div><div class="sheet" role="dialog" aria-label="Sac">
+  <div class="top2"><h2 style="margin:0">${fin?'✅ Sac terminé':'📦 Sac ouvert'}</h2><button class="x" data-act="closesheet" aria-label="Fermer" style="font-size:26px">×</button></div>
+  <p class="m" style="margin:0 0 10px">${esc(x.type)} · ${fmt(x.kg,x.kg%1?1:0)} kg · acheté le ${dShort(x.date)}</p>
+  <div class="fields">
+    ${fin&&!x.ouvert?`<div class="field"><label>Ouvert le</label><input id="sc_o" type="date" value="${x.date}" min="${x.date}" max="${today()}"></div>`:''}
+    <div class="field"><label>${fin?'Fini le':'Ouvert le'}</label><input id="sc_d" type="date" value="${today()}" min="${x.ouvert||x.date}" max="${today()}"></div>
+  </div>
+  ${fin?'<p class="tip">L’appli calcule combien de jours le sac a duré et combien tes poules mangent vraiment. Le stock d’aliment est recalé au passage.</p>':'<p class="tip">Quand il sera vide, touche « Fini » pour savoir combien de temps il a duré.</p>'}
+  <button class="btn" style="margin-top:10px" data-act="sacok">${fin?'Enregistrer la fin du sac':'Enregistrer'}</button></div>`}
+function sacValider(){
+  const F=S.sacForm,x=(S.aliment.achats||[]).find(a=>a.id===F.id);if(!x)return;
+  const d=document.getElementById('sc_d').value||today();const o=document.getElementById('sc_o');
+  if(F.action==='ouvert'){x.ouvert=d}
+  else{if(o&&o.value)x.ouvert=o.value;if(!x.ouvert)x.ouvert=x.date;if(d<x.ouvert){toast('La date de fin est avant l’ouverture');return}x.fini=d;
+    // recale le stock : il reste les sacs pas encore finis achetés avant cette date
+    const reste=(S.aliment.achats||[]).filter(a=>a.id!==x.id&&a.type!=='Coquilles / grit'&&!a.fini&&a.date<=d).reduce((s,a)=>s+(Number(a.kg)||0),0);
+    S.aliment.controles=(S.aliment.controles||[]).concat({id:uid(),date:d,kg:reste,auto:true}).slice(-20)}
+  saveAliment();S.sheet=null;const st=sacStats(x);toast(F.action==='fini'&&st?`Sac fini en ${st.j} jours`:'Sac ouvert');render()}
+function sacsCard(){
+  const R=dureeParType(),types=Object.keys(R);
+  const ouverts=(S.aliment.achats||[]).filter(x=>x.ouvert&&!x.fini&&x.type!=='Coquilles / grit');
+  if(!types.length&&!ouverts.length)return'';
+  const c=alimConf();
+  const allG=[].concat(...types.map(t=>R[t].g));const gMoy=allG.length?allG.reduce((a,b)=>a+b,0)/allG.length:null;
+  return`<div class="card"><h2>⏱️ Durée des sacs</h2>
+  ${ouverts.map(x=>{const p=sacPrevision(x);return`<div class="nextm">📦 <b>${esc(x.type)} ${fmt(x.kg,x.kg%1?1:0)} kg</b> ouvert depuis ${diffDays(x.ouvert,today())} j${p?`<br>Il devrait être fini vers le <b>${dShort(p.fin)}</b> <span class="m">(${p.src})</span>`:''}</div>`}).join('')}
+  ${types.map(t=>{const r=R[t];const j=r.j/r.n;return`<div class="row"><span>${esc(t)}<br><span class="m">${r.n} sac${r.n>1?'s':''} fini${r.n>1?'s':''} · ${fmt(r.kg/r.j,1)} kg/jour</span></span><b>${fmt(j,j%1&&j<10?1:0)} jours</b></div>`}).join('')}
+  ${gMoy?`<p class="tip" style="margin:10px 0 0">Tes poules mangent en vrai environ <b>${fmt(gMoy)} g par jour</b> chacune (réglage actuel : ${c.poule} g).${Math.abs(gMoy-c.poule)>=10?` <button class="btn ghost small" style="margin-top:6px" data-act="usegreel" data-g="${Math.round(gMoy)}">Utiliser ${fmt(gMoy)} g pour les calculs</button>`:' 👍'}</p>`:''}
+  </div>`}
+
 function addAchat(){
   const type=document.getElementById('alT').value,kg=parseFloat(String(document.getElementById('alKg').value).replace(',','.')),prix=parseFloat(String(document.getElementById('alP').value).replace(',','.'))||0,date=document.getElementById('alD').value||today();
   if(!(kg>0)){toast('Indique le poids du sac');return}
@@ -995,6 +1043,10 @@ document.addEventListener('click',async e=>{
     if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='Suppr. ?';b.style.fontSize='12px';return}
     arr.splice(Number(b.dataset.i),1);save('m-'+k);render()}
   else if(a==='addachat'){addAchat()}
+  else if(a==='sacopen'||a==='sacfini'){S.sacForm={id:b.dataset.id,action:a==='sacopen'?'ouvert':'fini'};S.sheet='sac';render()}
+  else if(a==='sacok'){sacValider()}
+  else if(a==='sacundo'){const x=S.aliment.achats.find(z=>z.id===b.dataset.id);if(x){const f=x.fini;delete x.fini;S.aliment.controles=(S.aliment.controles||[]).filter(c=>!(c.auto&&c.date===f));saveAliment();toast('Sac remis en cours');render()}}
+  else if(a==='usegreel'){const g=Number(b.dataset.g);S.aliment.conso=Object.assign({},alimConf(),{poule:g,coq:g+10});saveAliment();toast('Consommation réglée sur '+g+' g');render()}
   else if(a==='delachat'){if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='Suppr. ?';b.style.fontSize='12px';return}delAchat(b.dataset.id)}
   else if(a==='addctrl'){const kg=parseFloat(String(document.getElementById('ctKg').value).replace(',','.')),date=document.getElementById('ctD').value||today();
     if(!(kg>=0)||document.getElementById('ctKg').value===''){toast('Indique les kilos restants');return}

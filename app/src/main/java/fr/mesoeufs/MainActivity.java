@@ -9,6 +9,16 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.graphics.Bitmap;
+import android.location.Address;
+import android.location.Geocoder;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
+import android.os.Handler;
+import android.os.Looper;
+import org.json.JSONObject;
+import java.util.List;
+import java.util.Locale;
 import android.graphics.Color;
 import android.net.Uri;
 import android.os.Bundle;
@@ -27,6 +37,9 @@ public class MainActivity extends Activity {
     private static final int PICK_PHOTO = 42;
     private WebView web;
     private ValueCallback<Uri[]> fileCallback;
+    private static final int REQ_LOC = 8;
+    private static final String PERM_LOC = "android.permission.ACCESS_COARSE_LOCATION";
+    private boolean locDone = true;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -94,9 +107,71 @@ public class MainActivity extends Activity {
     @Override
     public void onBackPressed() {
         // le bouton retour ferme d'abord la fiche ouverte dans l'appli
-        web.evaluateJavascript("(function(){if(typeof S!=\"undefined\"&&S.edit){S.edit=null;render();return 'x'}return ''})()", v -> {
+        web.evaluateJavascript("(function(){return (window.__back&&window.__back())?'x':''})()", v -> {
             if (v == null || !v.contains("x")) super.onBackPressed();
         });
+    }
+
+    /* ---------- localisation (pour la météo) ---------- */
+    private void startLocation() {
+        if (checkSelfPermission(PERM_LOC) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{PERM_LOC}, REQ_LOC);
+            return;
+        }
+        LocationManager lm = (LocationManager) getSystemService(LOCATION_SERVICE);
+        if (lm == null) { locError("off"); return; }
+        Location best = null;
+        for (String p : lm.getProviders(true)) {
+            try {
+                Location l = lm.getLastKnownLocation(p);
+                if (l != null && (best == null || l.getTime() > best.getTime())) best = l;
+            } catch (SecurityException ignored) { }
+        }
+        if (best != null && System.currentTimeMillis() - best.getTime() < 6L * 3600 * 1000) { sendLocation(best); return; }
+        String prov = lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) ? LocationManager.NETWORK_PROVIDER
+                : (lm.isProviderEnabled(LocationManager.GPS_PROVIDER) ? LocationManager.GPS_PROVIDER : null);
+        if (prov == null) { if (best != null) sendLocation(best); else locError("off"); return; }
+        final Location fallback = best;
+        locDone = false;
+        try {
+            lm.requestSingleUpdate(prov, new LocationListener() {
+                @Override public void onLocationChanged(Location l) { if (!locDone) { locDone = true; sendLocation(l); } }
+                public void onStatusChanged(String p, int st, Bundle b) { }
+                public void onProviderEnabled(String p) { }
+                public void onProviderDisabled(String p) { }
+            }, Looper.getMainLooper());
+        } catch (SecurityException e) { locDone = true; locError("denied"); return; }
+        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+            if (!locDone) { locDone = true; if (fallback != null) sendLocation(fallback); else locError("timeout"); }
+        }, 25000);
+    }
+
+    private void sendLocation(Location l) {
+        final double lat = l.getLatitude(), lon = l.getLongitude();
+        new Thread(() -> {
+            String name = "";
+            try {
+                List<Address> a = new Geocoder(MainActivity.this, Locale.FRANCE).getFromLocation(lat, lon, 1);
+                if (a != null && !a.isEmpty()) {
+                    Address ad = a.get(0);
+                    name = ad.getLocality() != null ? ad.getLocality() : (ad.getSubAdminArea() != null ? ad.getSubAdminArea() : "");
+                }
+            } catch (Exception ignored) { }
+            final String js = "window.__onLoc&&window.__onLoc(" + lat + "," + lon + "," + JSONObject.quote(name) + ")";
+            runOnUiThread(() -> web.evaluateJavascript(js, null));
+        }).start();
+    }
+
+    private void locError(String code) {
+        runOnUiThread(() -> web.evaluateJavascript("window.__onLocErr&&window.__onLocErr('" + code + "')", null));
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode != REQ_LOC) return;
+        if (results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED) startLocation();
+        else locError("denied");
     }
 
     private void askNotifPermission() {
@@ -107,6 +182,11 @@ public class MainActivity extends Activity {
     }
 
     class Bridge {
+        @JavascriptInterface
+        public void getLocation() {
+            runOnUiThread(() -> startLocation());
+        }
+
         @JavascriptInterface
         public void setReminder(boolean on, int h, int m) {
             SharedPreferences.Editor e = getSharedPreferences("rappel", MODE_PRIVATE).edit();

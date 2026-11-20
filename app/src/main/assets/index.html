@@ -104,6 +104,16 @@ select{appearance:auto}
 .legend{display:flex;gap:14px;font-size:12px;color:var(--mut);margin-top:6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
 .hb{margin:10px 0}.hb .prog{height:8px;margin-top:5px}
 .v.up,.v.down{font-size:22px}
+.appel{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:10px}
+.ap{border:2px solid var(--line);background:var(--card);border-radius:16px;padding:10px 4px;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--ink);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.ap .ph{position:relative;overflow:visible}.ap .ph img{border-radius:50%}
+.ap.vu{border-color:var(--green);background:color-mix(in srgb,var(--green) 12%,var(--card))}
+.ap i{position:absolute;right:-4px;bottom:-4px;background:var(--green);color:#fff;border-radius:50%;width:24px;height:24px;display:flex;align-items:center;justify-content:center;font-style:normal;font-size:14px}
+.predgrid{display:flex;flex-wrap:wrap;gap:8px}
+.cal .c{position:relative}.calp,.cala{position:absolute;top:1px;right:2px;font-style:normal;font-size:10px}.cala{left:2px;right:auto}
+.mgrid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:4px}
+.mday{background:var(--bg);border-radius:14px;padding:10px;text-align:center;font-size:14px}.mic{font-size:34px;line-height:1.2}
+.sun{display:flex;justify-content:space-around;margin:12px 0 4px;font-size:15px}
 </style>
 </head>
 <body>
@@ -176,6 +186,7 @@ function syncCouveeAlerts(){
   if(couveeAlertsOn())(S.couvees.list||[]).filter(c=>!c.fini).forEach(c=>{const E=ESP[c.esp];if(!E)return;
     milestones(c.esp,c.debut,c.meth).filter(m=>m.j>0).forEach(m=>{const[y,mo,d]=m.date.split('-').map(Number);const t=new Date(y,mo-1,d,9,0,0).getTime();
       if(t>Date.now())out.push({t,title:`🐣 Couvée ${E.n.toLowerCase()} · jour ${m.j}`,text:m.j===E.d?`Éclosion prévue aujourd’hui (${c.n} œufs) ! Ne pas ouvrir, prévoir chaleur, eau et aliment poussin.`:m.t})})});
+  try{out.push(...fermetureAlerts())}catch(e){}
   out.sort((a,b)=>a.t-b.t);
   try{AndroidApp.setCouveeAlerts(JSON.stringify(out.slice(0,40)))}catch(e){}
 }
@@ -356,6 +367,131 @@ function barChart(vals,labels,{h=130,hl=-1,fmtTop=null}={}){
 }
 function seg(name,opts,cur){return`<div class="seg">${opts.map(([v,l])=>`<button class="${v===cur?'on':''}" data-act="seg" data-k="${name}" data-v="${v}">${l}</button>`).join('')}</div>`}
 
+/* ---------- événements du jour : comptage & prédateurs ---------- */
+const PREDS={renard:['🦊','Renard'],fouine:['🦦','Fouine / martre'],belette:['🐾','Belette'],rat:['🐀','Rat'],rapace:['🦅','Rapace (buse, épervier…)'],chien:['🐕','Chien'],chat:['🐈','Chat'],blaireau:['🦡','Blaireau'],autre:['❓','Autre / inconnu']};
+const DEGATS={rien:'Vu, pas de dégâts',attaque:'Attaque sans perte',oeufs:'Œufs mangés',tue:'Animal tué',disparu:'Animal disparu'};
+function evOf(ds){const M=S.months[ds.slice(0,7)];return(M&&M.ev&&M.ev[ds.slice(8)])||null}
+function setEv(ds,fn){const k=ds.slice(0,7),M=getMonth(k);M.ev=M.ev||{};const d=ds.slice(8);const e=M.ev[d]||{};fn(e);
+  if((!e.pred||!e.pred.length)&&!e.appel)delete M.ev[d];else M.ev[d]=e;save('m-'+k)}
+function aliveForCount(ds){return flock().filter(a=>a.statut==='vivant'||aliveOn(a,ds)).filter(a=>arrDate(a)<=ds&&(a.statut==='vivant'||(a.fin&&a.fin>ds)))}
+function appelState(ds){const e=evOf(ds),all=aliveForCount(ds);if(!e||!e.appel)return{done:false,all,vus:[]};
+  const vus=all.filter(a=>e.appel.ids.includes(a.id));return{done:true,all,vus,manque:all.filter(a=>!e.appel.ids.includes(a.id)),t:e.appel.t}}
+function nowHM(){const d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes())}
+function appelCard(ds){
+  const st=appelState(ds);if(!st.all.length)return`<div class="card"><h2>🌙 Comptage du soir</h2><p class="tip" style="margin:0">Ajoute tes poules dans <b>Basse-cour</b> pour pouvoir les compter le soir en touchant chacune.</p></div>`;
+  let body;
+  if(!st.done)body=`<p class="tip" style="margin:0 0 10px">Touche chaque poule quand tu la vois rentrer.</p><button class="btn" data-act="openappel">Compter mes ${st.all.length} animaux</button>`;
+  else if(!st.manque.length)body=`<div class="row" style="border:none"><span>✅ <b>Tout le monde est là</b> (${st.vus.length}/${st.all.length})${st.t?' · '+st.t.replace(':','h'):''}</span><button class="btn ghost small" data-act="openappel">Voir</button></div>`;
+  else body=`<div class="row" style="border:none"><span>⚠️ <b>${st.vus.length}/${st.all.length}</b> vus · manque : ${st.manque.map(a=>esc(a.nom||TYPES[a.type].n)).join(', ')}</span><button class="btn small" data-act="openappel">Compter</button></div>`;
+  return`<div class="card"><h2>🌙 Comptage du soir</h2>${body}</div>`}
+function predCard(ds){
+  const e=evOf(ds),L=(e&&e.pred)||[];
+  return`<div class="card"><div class="top2" style="margin:0 0 ${L.length?'6px':'0'}"><h2 style="margin:0">🦊 Prédateurs</h2><button class="btn ghost small" data-act="openpred">+ Signaler</button></div>
+  ${L.map(p=>`<div class="row"><span>${PREDS[p.type][0]} <b>${PREDS[p.type][1]}</b>${p.h?' · '+p.h.replace(':','h'):''}<br><span class="m">${DEGATS[p.deg]||''}${p.victime&&S.animals[p.victime]?' : '+esc(S.animals[p.victime].nom||'un animal'):''}${p.note?' · '+esc(p.note):''}</span></span><button class="x" data-act="delpred" data-id="${p.id}" aria-label="Supprimer">×</button></div>`).join('')}</div>`}
+function sheet2(){
+  if(S.sheet==='appel'){const ds=S.sel,e=evOf(ds),ids=(e&&e.appel&&e.appel.ids)||[],all=aliveForCount(ds).sort((a,b)=>(a.type+(a.nom||'')).localeCompare(b.type+(b.nom||''),'fr'));
+    const n=all.filter(a=>ids.includes(a.id)).length;
+    return`<div class="sheetbg" data-act="closesheet"></div><div class="sheet" role="dialog" aria-label="Comptage du soir">
+    <div class="top2"><h2 style="margin:0">🌙 Comptage · ${n}/${all.length}</h2><button class="x" data-act="closesheet" aria-label="Fermer" style="font-size:26px">×</button></div>
+    <div class="prog" style="margin-bottom:12px"><div style="width:${all.length?n/all.length*100:0}%;background:${n===all.length?'var(--green)':'var(--yolk)'}"></div></div>
+    <div class="appel">${all.map(a=>{const v=ids.includes(a.id),t=TYPES[a.type]||TYPES.poule;return`<button class="ap ${v?'vu':''}" data-act="toggleappel" data-id="${a.id}"><div class="ph">${a.photo?`<img src="${a.photo}" alt="">`:`<span>${t.e}</span>`}${v?'<i>✓</i>':''}</div><span>${esc(a.nom||t.n)}</span></button>`}).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:14px"><button class="btn ghost" data-act="appelall">${n===all.length?'Tout décocher':'Tous là ✓'}</button><button class="btn" data-act="closesheet">Terminer</button></div>
+    ${n===all.length&&all.length?'<p class="tip" style="text-align:center">🎉 Tout le monde est rentré, tu peux fermer le poulailler.</p>':''}</div>`}
+  if(S.sheet==='pred'){const P=S.predForm;const viv=flock().filter(a=>a.statut==='vivant');
+    return`<div class="sheetbg" data-act="closesheet"></div><div class="sheet" role="dialog" aria-label="Signaler un prédateur">
+    <div class="top2"><h2 style="margin:0">🦊 Signaler un prédateur</h2><button class="x" data-act="closesheet" aria-label="Fermer" style="font-size:26px">×</button></div>
+    <p class="m" style="margin:0 0 8px">${S.sel===today()?'Aujourd’hui':dLong(S.sel)}</p>
+    <div class="predgrid">${Object.entries(PREDS).map(([k,v])=>`<button class="chip ${P.type===k?'on':''}" data-act="predtype" data-v="${k}">${v[0]} ${v[1]}</button>`).join('')}</div>
+    <div class="fields" style="margin-top:12px">
+      <div class="field"><label>Heure</label><input id="pr_h" type="time" value="${P.h||''}"></div>
+      <div class="field"><label>Dégâts</label><select id="pr_deg">${Object.entries(DEGATS).map(([k,v])=>`<option value="${k}" ${P.deg===k?'selected':''}>${v}</option>`).join('')}</select></div>
+      ${(P.deg==='tue'||P.deg==='disparu')&&viv.length?`<div class="field full"><label>Quel animal ?</label><select id="pr_vic"><option value="">— choisir —</option>${viv.map(a=>`<option value="${a.id}" ${P.victime===a.id?'selected':''}>${TYPES[a.type].e} ${esc(a.nom||TYPES[a.type].n)}</option>`).join('')}</select></div>`:''}
+      <div class="field full"><label>Note</label><input id="pr_note" value="${esc(P.note||'')}" placeholder="ex : traces près du grillage, côté bois"></div>
+    </div>
+    ${(P.deg==='tue'||P.deg==='disparu')?'<p class="tip">L’animal choisi sera marqué mort à cette date dans ta basse-cour.</p>':''}
+    <button class="btn" style="margin-top:12px" data-act="savepred">Enregistrer</button></div>`}
+  return''}
+function grabPred(){const P=S.predForm;if(!P)return;const g=id=>{const el=document.getElementById(id);return el?el.value:undefined};
+  if(g('pr_h')!==undefined)P.h=g('pr_h');if(g('pr_deg')!==undefined)P.deg=g('pr_deg');if(g('pr_vic')!==undefined)P.victime=g('pr_vic');if(g('pr_note')!==undefined)P.note=g('pr_note').trim()}
+function savePred(){grabPred();const P=S.predForm,ds=S.sel;if(!P.type){toast('Choisis le prédateur');return}
+  const p={id:uid(),type:P.type,h:P.h||'',deg:P.deg||'rien',note:P.note||''};
+  if((p.deg==='tue'||p.deg==='disparu')&&P.victime&&S.animals[P.victime]){p.victime=P.victime;const a=S.animals[P.victime];a.statut='mort';a.fin=ds;a.cause=(p.deg==='disparu'?'Disparu·e – ':'')+'Prédateur ('+PREDS[p.type][1].split(' (')[0]+')';saveAnimal(a)}
+  setEv(ds,e=>{e.pred=(e.pred||[]).concat(p)});S.sheet=null;S.predForm=null;toast(PREDS[p.type][0]+' Signalé');render()}
+function predStats(keys){const c={};keys.forEach(k=>{const M=S.months[k];Object.values((M&&M.ev)||{}).forEach(e=>(e.pred||[]).forEach(p=>c[p.type]=(c[p.type]||0)+1))});return c}
+
+/* ---------- météo & soleil (Open-Meteo, sans clé) ---------- */
+const WMO={0:['☀️','Ensoleillé'],1:['🌤️','Plutôt beau'],2:['⛅','Nuageux'],3:['☁️','Couvert'],45:['🌫️','Brouillard'],48:['🌫️','Brouillard givrant'],51:['🌦️','Bruine'],53:['🌦️','Bruine'],55:['🌦️','Bruine forte'],56:['🌧️','Bruine verglaçante'],57:['🌧️','Bruine verglaçante'],61:['🌧️','Pluie faible'],63:['🌧️','Pluie'],65:['🌧️','Forte pluie'],66:['🌧️','Pluie verglaçante'],67:['🌧️','Pluie verglaçante'],71:['🌨️','Neige faible'],73:['🌨️','Neige'],75:['❄️','Forte neige'],77:['🌨️','Grésil'],80:['🌦️','Averses'],81:['🌧️','Averses'],82:['⛈️','Fortes averses'],85:['🌨️','Averses de neige'],86:['❄️','Averses de neige'],95:['⛈️','Orage'],96:['⛈️','Orage et grêle'],99:['⛈️','Orage et grêle']};
+function wmo(c){return WMO[c]||['🌡️','—']}
+let meteoBusy=false;
+function getMeteo(){if(S.meteo===undefined)S.meteo=LS.get('oeufs-meteo');return S.meteo}
+async function loadMeteo(force){
+  const L=S.settings.lieu;if(!L||meteoBusy)return;const M=getMeteo();
+  if(!force&&M&&M.lat===L.lat&&M.lon===L.lon&&Date.now()-M.at<3600e3&&M.daily&&M.daily.time&&M.daily.time[0]===today())return;
+  meteoBusy=true;S.meteoErr=false;
+  try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${L.lat}&longitude=${L.lon}&current=temperature_2m,weather_code&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,sunrise,sunset&timezone=auto&forecast_days=7`;
+    const r=await fetch(u);if(!r.ok)throw 0;const j=await r.json();
+    S.meteo={lat:L.lat,lon:L.lon,at:Date.now(),current:j.current,daily:j.daily};LS.set('oeufs-meteo',S.meteo);syncCouveeAlerts();
+  }catch(e){S.meteoErr=true}
+  meteoBusy=false;
+  const a=document.activeElement;if(!S.edit&&!S.sheet&&!(a&&(a.tagName==='INPUT'||a.tagName==='TEXTAREA'||a.tagName==='SELECT')))render();
+}
+const hm=iso=>iso?iso.slice(11,16):'';
+const addMin=(t,m)=>{const[h,mm]=t.split(':').map(Number);const x=h*60+mm+m;return pad(Math.floor(((x%1440)+1440)%1440/60))+':'+pad(((x%60)+60)%60)};
+function meteoCard(){
+  const L=S.settings.lieu;
+  if(!L)return`<div class="card"><h2>🌦️ Météo et coucher du soleil</h2><p class="tip" style="margin:0 0 10px">Indique ta commune pour voir la météo d’aujourd’hui et de demain, et l’heure à laquelle les poules rentrent.</p>${canLocate()?`<button class="btn" data-act="locate" ${S.locating?'disabled':''}>${S.locating?'📍 Recherche…':'📍 Utiliser ma position'}</button>`:''}${S.lieuMsg&&!S.locating?`<p class="tip">${esc(S.lieuMsg)}</p>`:''}<button class="btn ghost" style="margin-top:8px" data-act="openreglages">Choisir ma commune à la main</button></div>`;
+  const M=getMeteo();const D=M&&M.daily;const i0=D?D.time.indexOf(today()):-1;
+  if(!D||i0<0)return`<div class="card"><h2>🌦️ Météo · ${esc(L.nom)}</h2><p class="tip" style="margin:0">${S.meteoErr?'Pas de connexion : la météo s’affichera dès que tu auras du réseau.':'Chargement de la météo…'}</p></div>`;
+  const day=(i,lab)=>{const w=wmo(D.weather_code[i]);return`<div class="mday"><div class="m">${lab}</div><div class="mic">${w[0]}</div><div><b>${Math.round(D.temperature_2m_min[i])}° / ${Math.round(D.temperature_2m_max[i])}°</b></div><div class="m">${w[1]}</div><div class="m">💧 ${fmt(D.precipitation_sum[i],1)} mm${D.precipitation_probability_max&&D.precipitation_probability_max[i]!=null?' · '+D.precipitation_probability_max[i]+' %':''}</div><div class="m">💨 ${Math.round(D.wind_speed_10m_max[i])} km/h</div></div>`};
+  const sr=hm(D.sunrise[i0]),ss=hm(D.sunset[i0]),off=Number(S.settings.fermOffset??30);
+  const al=[];[[i0,'Aujourd’hui'],[i0+1,'Demain']].forEach(([i,l])=>{if(i>=D.time.length)return;
+    if(D.temperature_2m_min[i]<=0)al.push(`❄️ ${l} : gel (${Math.round(D.temperature_2m_min[i])}°), surveille que l’eau ne gèle pas.`);
+    if(D.temperature_2m_max[i]>=30)al.push(`🥵 ${l} : forte chaleur (${Math.round(D.temperature_2m_max[i])}°), ombre et eau fraîche.`);
+    if((D.wind_gusts_10m_max&&D.wind_gusts_10m_max[i]>=70)||D.wind_speed_10m_max[i]>=50)al.push(`🌬️ ${l} : vent fort, vérifie toit et portes.`);
+    if(D.precipitation_sum[i]>=15)al.push(`🌧️ ${l} : grosse pluie, abri au sec pour les poules.`)});
+  const cur=M.current?`${wmo(M.current.weather_code)[0]} ${Math.round(M.current.temperature_2m)}° maintenant`:'';
+  return`<div class="card"><div class="top2"><h2 style="margin:0">🌦️ ${esc(L.nom)}</h2><span class="m">${cur}</span></div>
+  <div class="mgrid">${day(i0,'Aujourd’hui')}${i0+1<D.time.length?day(i0+1,'Demain'):''}</div>
+  <div class="sun"><span>🌅 Lever <b>${sr.replace(':','h')}</b></span><span>🌇 Coucher <b>${ss.replace(':','h')}</b></span></div>
+  <div class="nextm">🐔 Les poules rentrent vers <b>${addMin(ss,-15).replace(':','h')}–${ss.replace(':','h')}</b>. Ferme le poulailler vers <b>${addMin(ss,off).replace(':','h')}</b>.${i0+1<D.time.length?`<br><span class="m">Demain : lever ${hm(D.sunrise[i0+1]).replace(':','h')}, coucher ${hm(D.sunset[i0+1]).replace(':','h')}</span>`:''}</div>
+  ${al.map(a=>`<p class="tip" style="margin:6px 0 0;color:var(--ink)">${a}</p>`).join('')}
+  <p class="m" style="margin:8px 0 0;font-size:11px">${S.meteoErr?'Hors ligne · ':''}Mis à jour à ${new Date(M.at).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})} · Open-Meteo</p></div>`}
+function fermetureAlerts(){
+  if(!S.settings.alerteFermeture)return[];const M=getMeteo();if(!M||!M.daily)return[];const off=Number(S.settings.fermOffset??30);
+  return M.daily.time.map((d,i)=>{const ss=hm(M.daily.sunset[i]);if(!ss)return null;const[h,m]=addMin(ss,off).split(':').map(Number);const[y,mo,dd]=d.split('-').map(Number);
+    const t=new Date(y,mo-1,dd,h,m,0).getTime();return t>Date.now()?{t,title:'🌇 Fermeture du poulailler',text:`Le soleil s’est couché à ${ss.replace(':','h')}. Compte tes poules et ferme le poulailler.`}:null}).filter(Boolean)}
+async function searchLieu(q){
+  S.lieuRes=null;S.lieuMsg='Recherche…';render();
+  try{const r=await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=6&language=fr&format=json`);const j=await r.json();
+    S.lieuRes=(j.results||[]).map(x=>({nom:x.name,info:[x.postcodes&&x.postcodes[0],x.admin2||x.admin1,x.country_code!=='FR'?x.country:''].filter(Boolean).join(' · '),lat:Math.round(x.latitude*1000)/1000,lon:Math.round(x.longitude*1000)/1000}));
+    S.lieuMsg=S.lieuRes.length?'':'Aucune commune trouvée.'}
+  catch(e){S.lieuMsg='Pas de connexion internet.'}
+  render()}
+function canLocate(){return!!((window.AndroidApp&&AndroidApp.getLocation)||navigator.geolocation)}
+function locate(){
+  S.lieuMsg='📍 Recherche de ta position…';S.locating=true;render();
+  if(window.AndroidApp&&AndroidApp.getLocation){try{AndroidApp.getLocation();return}catch(e){}}
+  if(navigator.geolocation)navigator.geolocation.getCurrentPosition(p=>window.__onLoc(p.coords.latitude,p.coords.longitude,''),e=>window.__onLocErr(e&&e.code===1?'denied':'timeout'),{timeout:25000,maximumAge:6*3600e3});
+  else window.__onLocErr('off')}
+window.__onLoc=async function(lat,lon,name){
+  if(!name){try{const r=await fetch(`https://api-adresse.data.gouv.fr/reverse/?lon=${lon}&lat=${lat}&type=municipality&limit=1`);const j=await r.json();const p=j.features&&j.features[0]&&j.features[0].properties;if(p)name=p.city||p.name||''}catch(e){}}
+  S.settings.lieu={nom:name||'Ma position',lat:Math.round(lat*1000)/1000,lon:Math.round(lon*1000)/1000,auto:true};save('reglages');
+  S.locating=false;S.lieuMsg='';S.lieuRes=null;S.meteo=null;toast('📍 '+(name||'Position')+' enregistrée');render();loadMeteo(true)};
+window.__onLocErr=function(code){S.locating=false;
+  S.lieuMsg=code==='denied'?'Autorisation refusée. Tu peux l’accepter dans les paramètres Android de l’appli, ou chercher ta commune ci-dessous.':code==='off'?'La localisation du téléphone est désactivée : active-la, ou cherche ta commune ci-dessous.':'Position introuvable pour l’instant (essaie dehors ou avec le Wi-Fi), ou cherche ta commune ci-dessous.';
+  if(S.view!=='reglages')toast(code==='denied'?'Localisation refusée':code==='off'?'Localisation désactivée':'Position introuvable');render()};
+function meteoSettingsCard(){const L=S.settings.lieu;
+  return`<div class="card"><h2>🌦️ Météo et soleil</h2>
+  ${L?`<div class="row"><span>Commune</span><b>${L.auto?'📍 ':''}${esc(L.nom)}</b></div>`:''}
+  ${canLocate()?`<button class="btn" style="margin-top:10px" data-act="locate" ${S.locating?'disabled':''}>${S.locating?'📍 Recherche…':'📍 Utiliser ma position'}</button><p class="m" style="margin:8px 0 0;text-align:center">ou</p>`:''}
+  <div class="fields" style="margin-top:8px"><div class="field full"><label>${L?'Changer de commune':'Ta commune'}</label><input id="lieuQ" placeholder="Nom de ta commune" enterkeyhint="search"></div></div>
+  <button class="btn ghost small" style="margin-top:8px" data-act="lieusearch">🔍 Rechercher</button>
+  ${S.lieuMsg?`<p class="tip">${esc(S.lieuMsg)}</p>`:''}
+  ${(S.lieuRes||[]).map((x,i)=>`<button class="row rowbtn" data-act="lieupick" data-i="${i}"><span><b>${esc(x.nom)}</b> <span class="m">${esc(x.info)}</span></span><span>›</span></button>`).join('')}
+  ${window.AndroidApp&&AndroidApp.setCouveeAlerts?`<label class="sw" style="margin-top:14px"><input type="checkbox" id="fermAl" ${S.settings.alerteFermeture?'checked':''}><span>Me prévenir chaque soir de fermer le poulailler</span></label>
+  <div class="field" style="margin-top:10px;max-width:220px"><label>Combien de minutes après le coucher du soleil</label><input id="fermOff" type="number" inputmode="numeric" min="0" max="120" value="${S.settings.fermOffset??30}"></div>`:''}
+  </div>`}
+
 /* ---------- vue Jour ---------- */
 function vJour(){
   const d=S.sel,dt=parse(d),x=rec(d),isToday=d===today();
@@ -385,6 +521,9 @@ function vJour(){
     </div>
     ${x?`<button class="btn ghost small" style="margin-top:10px" data-act="clear">Effacer ce jour</button>`:''}
   </div>
+  ${appelCard(d)}
+  ${predCard(d)}
+  ${isToday?meteoCard():''}
   <div class="kpis" id="live">
     <div class="kpi"><div class="v">${fmt(w.t)}</div><div class="k">sur 7 jours</div></div>
     <div class="kpi"><div class="v">${fmt(ms.tot)}</div><div class="k">en ${MOIS[dt.getMonth()]}</div></div>
@@ -407,7 +546,7 @@ function vMois(){
   for(let i=0;i<first;i++)cal+='<div></div>';
   const max=Math.max(1,...vals.map(v=>v||0));
   for(let i=1;i<=nd;i++){const ds=k+'-'+pad(i),x=(M.days||{})[pad(i)],fut=ds>t;const a=x?.18+.82*(x.r/max):0;
-    cal+=`<button class="c ${ds===t?'today':''} ${fut?'fut':''}" ${fut?'disabled':`data-act="goto" data-d="${ds}"`} style="${x?`background:color-mix(in srgb,var(--yolk) ${Math.round(a*100)}%,var(--bg))`:''}">${i}${x?`<b>${x.r}</b>`:''}</button>`}
+    cal+=`<button class="c ${ds===t?'today':''} ${fut?'fut':''}" ${fut?'disabled':`data-act="goto" data-d="${ds}"`} style="${x?`background:color-mix(in srgb,var(--yolk) ${Math.round(a*100)}%,var(--bg))`:''}">${(()=>{const e=(M.ev||{})[pad(i)];if(!e)return'';let o='';if(e.pred&&e.pred.length)o+=`<i class="calp">${PREDS[e.pred[0].type][0]}</i>`;if(e.appel){const st=appelState(ds);if(st.manque&&st.manque.length)o+='<i class="cala">⚠️</i>'}return o})()}${i}${x?`<b>${x.r}</b>`:''}</button>`}
   cal+='</div>';
   const nowK=t.slice(0,7),mag=S.settings.prixMagasin??0.35;
   const morts=flock().filter(a=>a.statut==='mort'&&a.fin&&a.fin.slice(0,7)===k).length;
@@ -423,13 +562,14 @@ function vMois(){
     <div class="kpi"><div class="v">${st.best?st.best.r:'—'}</div><div class="k">${st.best?'record le '+Number(st.best.d)+' '+MOIS_C[m-1]:'meilleur jour'}</div></div>
   </div>
   <div class="card" style="margin-top:12px"><h2>Ponte jour par jour</h2>${barChart(vals,lab,{h:130})}</div>
-  <div class="card"><h2>Calendrier</h2>${cal}<p class="tip" style="margin:8px 0 0">Touche un jour pour le modifier.</p></div>
+  <div class="card"><h2>Calendrier</h2>${cal}<p class="tip" style="margin:8px 0 0">Touche un jour pour le modifier. 🦊 = prédateur signalé · ⚠️ = poule manquante au comptage.</p></div>
   <div class="card"><h2>💶 Argent du mois</h2>
     <div class="row"><span>Œufs gardés / vendus / cassés</span><b>${fmt(Math.max(0,st.tot-st.c-st.v))} / ${fmt(st.v)} / ${fmt(st.c)}</b></div>
     <div class="row"><span>Recettes</span><b class="up">+${eur(st.rev)}</b></div>
     <div class="row"><span>Dépenses</span><b class="down">−${eur(st.dep)}</b></div>
     <div class="row"><span>Coût de revient d’un œuf</span><b>${st.tot?eur(st.dep/st.tot):'—'}</b></div>
     ${arr||morts?`<div class="row"><span>Basse-cour</span><b>${arr?'+'+arr+' arrivée'+(arr>1?'s':''):''}${arr&&morts?' · ':''}${morts?morts+' décès':''}</b></div>`:''}
+    ${(()=>{const c=predStats([k]);const e=Object.entries(c);return e.length?`<div class="row"><span>Prédateurs signalés</span><b>${e.map(([t,n])=>PREDS[t][0]+' '+PREDS[t][1].split(' (')[0]+(n>1?' ×'+n:'')).join(', ')}</b></div>`:''})()}
     <button class="btn ghost" style="margin-top:10px" data-act="gobudget" data-k="${k}">Détail et dépenses dans Budget →</button>
   </div>
   <button class="btn ghost" data-act="share">📋 Copier le récap du mois</button>
@@ -470,6 +610,7 @@ function vBasse(){
   const list=(S.flockFilter==='vivants'?viv:f.filter(a=>a.statut!=='vivant')).sort((a,b)=>(a.type+a.nom).localeCompare(b.type+b.nom,'fr'));
   const ev=[];f.forEach(a=>{const nm=esc(a.nom||TYPES[a.type].n);if(a.arrivee)ev.push({d:a.arrivee,t:`${TYPES[a.type].e} Arrivée de ${nm}`});else if(a.naiss)ev.push({d:a.naiss,t:`🐣 Naissance de ${nm}`});
     if(a.statut==='mort'&&a.fin)ev.push({d:a.fin,t:`✝ Décès de ${nm}${a.cause?' ('+esc(a.cause)+')':''}`});if(a.statut==='parti'&&a.fin)ev.push({d:a.fin,t:`👋 Départ de ${nm}`})});
+  Object.keys(S.months).forEach(k=>Object.entries(S.months[k].ev||{}).forEach(([d,e])=>(e.pred||[]).forEach(p=>ev.push({d:k+'-'+d,t:`${PREDS[p.type][0]} ${PREDS[p.type][1].split(' (')[0]} : ${DEGATS[p.deg]||''}`}))));
   ev.sort((a,b)=>b.d.localeCompare(a.d));
   let ratio='';if(nP&&nC){const r=nP/nC;ratio=`<p class="tip" style="margin:10px 0 0">1 coq pour ${fmt(r,1)} poule${r>1?'s':''} ${r<5?'· c’est beaucoup de coqs, les poules risquent d’être stressées (idéal : 1 pour 8 à 12).':r>15?'· un coq de plus aiderait pour la fécondation des œufs à couver.':'· bon équilibre 👍'}</p>`}
   else if(nP&&!nC)ratio=`<p class="tip" style="margin:10px 0 0">Pas de coq : les œufs ne sont pas fécondés, donc impossible de les faire couver.</p>`;
@@ -754,6 +895,7 @@ function vReglages(){
   return `
   <h2 style="margin-bottom:12px">Réglages</h2>
   ${accountCard()}
+  ${meteoSettingsCard()}
   <div class="card"><div class="fields">
     ${hasFlock?`<div class="field full agebox">Poules pondeuses : <b>${hensOn(today())}</b> <span class="m">(calculé depuis ta basse-cour)</span></div>`:`<div class="field"><label>Nombre de poules pondeuses</label><input id="sPoules" type="number" inputmode="numeric" min="0" value="${s.poules??''}"></div>`}
     <div class="field"><label>Prix de vente d’un œuf (€)</label><input id="sPrix" type="number" inputmode="decimal" step="0.01" value="${s.prix??''}"></div>
@@ -773,12 +915,12 @@ function vReglages(){
 }
 
 function render(){
-  if(S.edit)grabForm();
+  if(S.edit)grabForm();if(S.sheet==='pred')grabPred();
   const app=document.getElementById('app');
   const views={jour:vJour,stats:vStats,budget:vBudget,basse:vBasse,couvee:vCouvee,reglages:vReglages};
-  app.innerHTML=`<div class="top"><h1>🐔 Mes œufs</h1><span style="display:flex;align-items:center;gap:8px"><span class="status" id="status">${esc(S.status||'')}</span><button class="gear ${S.view==='reglages'?'on':''}" data-act="openreglages" aria-label="Réglages">⚙️</button></span></div>`+(S.loading?'<p class="tip">Chargement…</p>':'')+views[S.view]()+sheet();
+  app.innerHTML=`<div class="top"><h1>🐔 Mes œufs</h1><span style="display:flex;align-items:center;gap:8px"><span class="status" id="status">${esc(S.status||'')}</span><button class="gear ${S.view==='reglages'?'on':''}" data-act="openreglages" aria-label="Réglages">⚙️</button></span></div>`+(S.loading?'<p class="tip">Chargement…</p>':'')+views[S.view]()+sheet()+sheet2();
   document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.view===S.view));
-  document.body.style.overflow=S.edit?'hidden':'';
+  document.body.style.overflow=(S.edit||S.sheet)?'hidden':'';
 }
 function renderLive(){
   if(S.view!=='jour'||S.edit)return;const live=document.getElementById('live');if(!live)return;
@@ -812,7 +954,7 @@ document.addEventListener('click',async e=>{
     if(!(await copy(txt))){const o=document.getElementById('shareOut');o.style.display='block';o.value=txt;o.select()}}
   else if(a==='newanimal'){openAnimal(null)}
   else if(a==='editanimal'){openAnimal(b.dataset.id)}
-  else if(a==='closesheet'){S.edit=null;render()}
+  else if(a==='closesheet'){S.edit=null;S.sheet=null;render()}
   else if(a==='delphoto'){grabForm();delete S.edit.draft.photo;render()}
   else if(a==='saveanimal'){commitAnimal()}
   else if(a==='delanimal'){grabForm();if(!S.edit.confirmDel){S.edit.confirmDel=true;render();return}
@@ -830,6 +972,16 @@ document.addEventListener('click',async e=>{
   else if(a==='csvanimals'){const q=v=>'"'+String(v||'').replace(/"/g,'""')+'"';let csv='nom;type;race;naissance;arrivee;statut;date_fin;cause;notes\n';
     flock().forEach(x=>{csv+=[q(x.nom),x.type,q(x.race),birth(x)||'',x.arrivee||'',x.statut,x.fin||'',q(x.cause),q(x.notes)].join(';')+'\n'});
     if(!(await copy(csv))){const o=document.getElementById('csvOut');o.style.display='block';o.value=csv;o.select()}}
+  else if(a==='openappel'){S.sheet='appel';render()}
+  else if(a==='toggleappel'){const id=b.dataset.id;setEv(S.sel,e=>{e.appel=e.appel||{ids:[]};const i=e.appel.ids.indexOf(id);if(i<0)e.appel.ids.push(id);else e.appel.ids.splice(i,1);e.appel.t=nowHM()});render()}
+  else if(a==='appelall'){const all=aliveForCount(S.sel).map(x=>x.id);setEv(S.sel,e=>{const full=e.appel&&all.every(i=>e.appel.ids.includes(i));e.appel={ids:full?[]:all,t:nowHM()}});render()}
+  else if(a==='openpred'){S.predForm={deg:'rien',h:S.sel===today()?nowHM():''};S.sheet='pred';render()}
+  else if(a==='predtype'){grabPred();S.predForm.type=b.dataset.v;render()}
+  else if(a==='savepred'){savePred()}
+  else if(a==='delpred'){if(b.dataset.c!=='1'){b.dataset.c='1';b.textContent='Suppr. ?';b.style.fontSize='12px';return}setEv(S.sel,e=>{e.pred=(e.pred||[]).filter(p=>p.id!==b.dataset.id)});render()}
+  else if(a==='locate'){locate()}
+  else if(a==='lieusearch'){const q=document.getElementById('lieuQ').value.trim();if(q.length<2){toast('Tape le nom de ta commune');return}searchLieu(q)}
+  else if(a==='lieupick'){const x=S.lieuRes[Number(b.dataset.i)];S.settings.lieu={nom:x.nom,lat:x.lat,lon:x.lon};save('reglages');S.lieuRes=null;S.lieuMsg='';S.meteo=null;toast('Commune enregistrée : '+x.nom);render();loadMeteo(true)}
   else if(a==='openreglages'){S.edit=null;S.view=S.view==='reglages'?'jour':'reglages';render();window.scrollTo(0,0)}
   else if(a==='gobudgetalim'){S.view='budget';S.budgetMode='alim';render();window.scrollTo(0,0)}
   else if(a==='gobudget'){S.view='budget';S.budgetMode='argent';S.bPer='mois';S.bm=b.dataset.k;render();window.scrollTo(0,0)}
@@ -883,17 +1035,23 @@ document.addEventListener('change',async e=>{
   else if(id==='f_naiss'||id==='f_arr'||id==='f_agearr'||id==='f_fin'){grabForm();const a=S.edit.draft,bx=document.querySelector('.sheet .agebox');if(bx){const bb=birth(a);bx.innerHTML=`Âge : <b>${ageStr(bb,a.statut!=='vivant'&&a.fin?a.fin:today())}</b>${bb?` <span class="m">(né·e vers le ${dLong(bb)})</span>`:''}`}}
   else if(id==='cv_n'){S.cvForm.n=t.value}
   else if(id&&id.startsWith('cs_')){render()}
+  else if(id==='pr_deg'){grabPred();render()}
+  else if(id==='fermAl'||id==='fermOff'){S.settings.alerteFermeture=document.getElementById('fermAl').checked;const o=parseInt(document.getElementById('fermOff').value);if(o>=0&&o<=180)S.settings.fermOffset=o;save('reglages');syncCouveeAlerts();if(id==='fermAl')toast(S.settings.alerteFermeture?(S.settings.lieu?'Rappel de fermeture activé':'Choisis d’abord ta commune'):'Rappel de fermeture désactivé')}
   else if(id==='cvAl'){S.settings.alertesCouvee=t.checked;save('reglages');syncCouveeAlerts();toast(t.checked?'Alertes de couvée activées':'Alertes de couvée désactivées')}
   else if(id==='rapOn'||id==='rapT'){const on=document.getElementById('rapOn').checked,t=document.getElementById('rapT').value||'19:00';
     S.settings.rappel={on,t};save('reglages');const[h,m]=t.split(':').map(Number);try{AndroidApp.setReminder(on,h,m)}catch(e){}toast(on?'Rappel tous les jours à '+t.replace(':','h'):'Rappel désactivé')}
   else if(id&&id.startsWith('cv_')){const f=S.cvForm;f[id.slice(3)]=t.value;render()}
   else if(t.dataset.cv){const c=S.couvees.list.find(c=>c.id===t.dataset.cv);if(!c)return;c[t.dataset.f]=Math.max(0,parseInt(t.value)||0);saveCouvees();setTimeout(()=>{const a=document.activeElement;if(!(a&&a.tagName==='INPUT'))render()},250)}
 });
+document.addEventListener('keydown',e=>{if(e.target.id==='lieuQ'&&e.key==='Enter'){e.preventDefault();const q=e.target.value.trim();if(q.length>=2)searchLieu(q)}});
 document.addEventListener('focusin',e=>{if(e.target.type==='number')setTimeout(()=>{try{e.target.select()}catch(_){}} ,0)});
 window.addEventListener('popstate',()=>{});
 startSync();
 try{const r=S.settings.rappel;if(r&&r.on&&window.AndroidApp&&AndroidApp.setReminder){const[h,m]=r.t.split(':').map(Number);AndroidApp.setReminder(true,h,m)}}catch(e){}
 syncCouveeAlerts();
+loadMeteo();
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')loadMeteo()});
+window.__back=function(){if(S.edit||S.sheet){S.edit=null;S.sheet=null;render();return true}if(S.view!=='jour'){S.view='jour';render();return true}return false};
 </script>
 </body>
 </html>

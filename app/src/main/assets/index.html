@@ -222,6 +222,9 @@ function setDay(dateStr,patch,rerender=true){
   const k=dateStr.slice(0,7),d=dateStr.slice(8),M=getMonth(k);
   const cur=Object.assign({r:0,c:0,v:0,note:''},M.days[d]||{},patch);
   ['r','c','v','dn'].forEach(f=>{cur[f]=Math.max(0,Math.round(Number(cur[f])||0))});
+  if(cur.g===''||cur.g==null){delete cur.g;if('g' in patch)cur.c=0}
+  else if('g' in patch){cur.g=Math.max(0,Math.round(Number(cur.g)||0));cur.c=Math.max(0,cur.r-cur.v-cur.dn-cur.g)}
+  else{cur.g=Math.max(0,cur.r-cur.v-cur.dn-cur.c)}
   M.days[d]=cur;save('m-'+k);
   if(rerender)render();else renderLive();
 }
@@ -534,7 +537,7 @@ function vJour(){
       <div class="egg">${eggSvg}<input id="r" type="number" inputmode="numeric" min="0" value="${x?r:''}" placeholder="0" aria-label="Œufs récoltés"></div>
       <button class="cbtn plus" data-act="inc" data-n="1" aria-label="Plus un">+</button>
     </div>
-    <div class="hint">${x?`<b>${r}</b> œuf${r>1?'s':''} récolté${r>1?'s':''}`:'Touche + ou tape le nombre'}${hens?` · ${hens} poule${hens>1?'s':''} · ${fmt(r/hens*100)} % de ponte`:''}</div>
+    <div class="hint">${x?`<b>${r}</b> œuf${r>1?'s':''} récolté${r>1?'s':''}${(()=>{const g=Math.max(0,r-(x.v||0)-(x.dn||0)-(x.c||0));return` → <b>${g}</b> gardé${g>1?'s':''}${x.c?` · ${x.c} perdu${x.c>1?'s':''}`:''}`})()}`:'Touche + ou tape le nombre'}${hens?` · ${hens} poule${hens>1?'s':''} · ${fmt(r/hens*100)} % de ponte`:''}</div>
     <div class="quick">${Array.from({length:Math.min(7,Math.max(hens,6)+1)},(_,n)=>n).slice(-7).map(n=>`<button class="chip ${x&&r===n?'on':''}" data-act="setr" data-n="${n}">${n}</button>`).join('')}</div>
   </div>
   ${isToday&&(()=>{const sa=stockAliment();return sa&&sa.jours!=null&&sa.jours<=7})()?`<div class="card duecard"><div class="row"><span>🌾 Plus que <b>${stockAliment().jours} jour${stockAliment().jours>1?'s':''}</b> d’aliment (≈ ${fmt(stockAliment().stock,1)} kg)</span><button class="btn small" data-act="gobudgetalim">Voir</button></div></div>`:''}
@@ -542,7 +545,7 @@ function vJour(){
   <div class="card">
     <div class="fields">
       <div class="f3 full">
-      <div class="field"><label>Cassés / sales</label><input id="c" type="number" inputmode="numeric" min="0" value="${x&&x.c?x.c:''}" placeholder="0"></div>
+      <div class="field"><label>🏠 Gardés</label><input id="gk" type="number" inputmode="numeric" min="0" value="${x&&x.g!=null?x.g:''}" placeholder="${x?Math.max(0,x.r-(x.v||0)-(x.dn||0)-(x.g==null?(x.c||0):0)):0}"></div>
       <div class="field"><label>💶 Vendus</label><input id="v" type="number" inputmode="numeric" min="0" value="${x&&x.v?x.v:''}" placeholder="0"></div>
       <div class="field"><label>🎁 Donnés</label><input id="dn" type="number" inputmode="numeric" min="0" value="${x&&x.dn?x.dn:''}" placeholder="0"></div>
       </div>
@@ -594,7 +597,7 @@ function vMois(){
   <div class="card" style="margin-top:12px"><h2>Ponte jour par jour</h2>${barChart(vals,lab,{h:130})}</div>
   <div class="card"><h2>Calendrier</h2>${cal}<p class="tip" style="margin:8px 0 0">Touche un jour pour le modifier. 🦊 = prédateur signalé · ⚠️ = poule manquante au comptage.</p></div>
   <div class="card"><h2>💶 Argent du mois</h2>
-    <div class="row"><span>Œufs gardés / vendus / donnés / cassés</span><b>${fmt(Math.max(0,st.tot-st.c-st.v-st.dn))} / ${fmt(st.v)} / ${fmt(st.dn)} / ${fmt(st.c)}</b></div>
+    <div class="row"><span>Œufs gardés / vendus / donnés / perdus</span><b>${fmt(Math.max(0,st.tot-st.c-st.v-st.dn))} / ${fmt(st.v)} / ${fmt(st.dn)} / ${fmt(st.c)}</b></div>
     <div class="row"><span>Recettes</span><b class="up">+${eur(st.rev)}</b></div>
     <div class="row"><span>Dépenses</span><b class="down">−${eur(st.dep)}</b></div>
     <div class="row"><span>Coût de revient d’un œuf</span><b>${st.tot?eur(st.dep/st.tot):'—'}</b></div>
@@ -1109,7 +1112,7 @@ document.addEventListener('click',async e=>{
 });
 document.addEventListener('input',e=>{
   const id=e.target.id;
-  if(id==='r'||id==='c'||id==='v'||id==='dn'){if(e.target.value==='')return;setDay(S.sel,{[id]:e.target.value},false)}
+  if(id==='r'||id==='c'||id==='v'||id==='dn'||id==='gk'){if(e.target.value==='')return;setDay(S.sel,{[id==='gk'?'g':id]:e.target.value},false)}
   else if(id==='note'){setDay(S.sel,{note:e.target.value.slice(0,500)},false)}
   else if(id&&id.startsWith('cs_')){const v=parseInt(e.target.value);if(!(v>=0))return;S.aliment.conso=Object.assign({},alimConf(),{[id.slice(3)]:v});saveAliment();if(S.view==='budget'){const ks=document.querySelectorAll('.kpi .v');}}
   else if(id==='sPoules'||id==='sPrix'||id==='sMag'){const v=parseFloat(String(e.target.value).replace(',','.'));if(isNaN(v)||v<0)return;
@@ -1117,7 +1120,7 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',async e=>{
   const t=e.target,id=t.id;
-  if(['r','c','v','dn'].includes(id)){if(t.value==='')setDay(S.sel,{[id]:0});else render()}
+  if(['r','c','v','dn','gk'].includes(id)){if(t.value==='')setDay(S.sel,id==='gk'?{g:''}:{[id]:0});else render()}
   else if(id==='f_photo'&&t.files&&t.files[0]){try{grabForm();S.edit.draft.photo=await readPhoto(t.files[0]);render()}catch(err){toast('Photo illisible')}}
   else if(id==='f_naiss'||id==='f_arr'||id==='f_agearr'||id==='f_fin'){grabForm();const a=S.edit.draft,bx=document.querySelector('.sheet .agebox');if(bx){const bb=birth(a);bx.innerHTML=`Âge : <b>${ageStr(bb,a.statut!=='vivant'&&a.fin?a.fin:today())}</b>${bb?` <span class="m">(né·e vers le ${dLong(bb)})</span>`:''}`}}
   else if(id==='cv_n'){S.cvForm.n=t.value}

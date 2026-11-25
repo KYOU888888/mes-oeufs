@@ -221,10 +221,8 @@ function rec(dateStr){const M=S.months[dateStr.slice(0,7)];return M&&M.days?M.da
 function setDay(dateStr,patch,rerender=true){
   const k=dateStr.slice(0,7),d=dateStr.slice(8),M=getMonth(k);
   const cur=Object.assign({r:0,c:0,v:0,note:''},M.days[d]||{},patch);
-  ['r','c','v','dn'].forEach(f=>{cur[f]=Math.max(0,Math.round(Number(cur[f])||0))});
-  if(cur.g===''||cur.g==null){delete cur.g;if('g' in patch)cur.c=0}
-  else if('g' in patch){cur.g=Math.max(0,Math.round(Number(cur.g)||0));cur.c=Math.max(0,cur.r-cur.v-cur.dn-cur.g)}
-  else{cur.g=Math.max(0,cur.r-cur.v-cur.dn-cur.c)}
+  ['r','c','v','dn','g'].forEach(f=>{cur[f]=Math.max(0,Math.round(Number(cur[f])||0))});
+  cur.m2=1; // nouveau modèle : gardés / vendus / donnés = sorties du stock, saisies telles quelles
   M.days[d]=cur;save('m-'+k);
   if(rerender)render();else renderLive();
 }
@@ -232,13 +230,14 @@ function clearDay(dateStr){const k=dateStr.slice(0,7),M=getMonth(k);delete M.day
 function addDepense(dateStr,l,m,cat){const k=dateStr.slice(0,7),M=getMonth(k);M.depenses.push({l,m:Math.round(m*100)/100,...(cat?{cat}:{})});save('m-'+k)}
 function daysInMonth(k){const[y,m]=k.split('-').map(Number);return new Date(y,m,0).getDate()}
 function monthStats(k){
-  const M=S.months[k];const days=M&&M.days?M.days:{};let tot=0,c=0,v=0,dn=0,n=0,best=null,hs=0;
-  for(const d in days){const x=days[d];tot+=x.r||0;c+=x.c||0;v+=x.v||0;dn+=x.dn||0;n++;hs+=hensOn(k+'-'+d);if(!best||x.r>best.r)best={d,r:x.r}}
+  const M=S.months[k];const days=M&&M.days?M.days:{};let tot=0,c=0,v=0,dn=0,g=0,n=0,best=null,hs=0;
+  for(const d in days){const x=days[d];tot+=x.r||0;c+=x.c||0;v+=x.v||0;dn+=x.dn||0;g+=gardesDe(x);n++;hs+=hensOn(k+'-'+d);if(!best||x.r>best.r)best={d,r:x.r}}
   const dep=(M&&M.depenses||[]).reduce((a,x)=>a+(Number(x.m)||0),0);
   const recA=(M&&M.recettes||[]).reduce((a,x)=>a+(Number(x.m)||0),0);
   const avg=n?tot/n:0;
-  return{tot,c,v,dn,n,best,avg,poules:n?hs/n:hensOn(k+'-15'),taux:hs?tot/hs*100:0,dep,rev:v*(Number(S.settings.prix)||0)+recA};
+  return{tot,c,v,dn,g,n,best,avg,poules:n?hs/n:hensOn(k+'-15'),taux:hs?tot/hs*100:0,dep,rev:v*(Number(S.settings.prix)||0)+recA};
 }
+function gardesDe(x){return(x.m2||x.g!=null)?(x.g||0):Math.max(0,(x.r||0)-(x.c||0)-(x.v||0)-(x.dn||0))}
 function prevMonthKey(k){const[y,m]=k.split('-').map(Number);const d=new Date(y,m-2,1);return d.getFullYear()+'-'+pad(d.getMonth()+1)}
 function nextMonthKey(k){const[y,m]=k.split('-').map(Number);const d=new Date(y,m,1);return d.getFullYear()+'-'+pad(d.getMonth()+1)}
 function rangeSum(endStr,n){let t=0,c=0;for(let i=0;i<n;i++){const x=rec(addDays(endStr,-i));if(x){t+=x.r||0;c++}}return{t,c}}
@@ -504,8 +503,8 @@ function frigo(){
   const C=((S.frigo&&S.frigo.ctrl)||[]).slice().sort((a,b)=>a.date.localeCompare(b.date)).pop();if(!C)return null;
   const q=[];if(C.n>0)q.push({d:C.date,n:Number(C.n),init:true});
   const take=out=>{while(out>0&&q.length){const t=Math.min(out,q[0].n);q[0].n-=t;out-=t;if(!q[0].n)q.shift()}};
-  take(usedOn(C.date));
-  for(let d=addDays(C.date,1);d<=today();d=addDays(d,1)){const x=rec(d);if(x&&x.r)q.push({d,n:x.r});take((x?(x.c||0)+(x.v||0)+(x.dn||0):0)+usedOn(d))}
+  take(usedOn(C.date)+((rec(C.date)||{}).gAfter||0));
+  for(let d=addDays(C.date,1);d<=today();d=addDays(d,1)){const x=rec(d);if(x&&x.r)q.push({d,n:x.r});take((x?(x.c||0)+(x.v||0)+(x.dn||0)+((x.m2||x.g!=null)?(x.g||0):0):0)+usedOn(d))}
   const n=q.reduce((s,a)=>s+a.n,0);const age=a=>diffDays(a.d,today());
   const frais=q.filter(a=>age(a)<=9).reduce((s,a)=>s+a.n,0),moyen=q.filter(a=>age(a)>9&&age(a)<=21).reduce((s,a)=>s+a.n,0),vieux=q.filter(a=>age(a)>21).reduce((s,a)=>s+a.n,0);
   return{n,q,ctrl:C,vieux:q[0]||null,frais,moyen,vieuxN:vieux}}
@@ -515,11 +514,11 @@ function frigoCard(){
     <p class="tip" style="margin-top:0">${F?'Recompte tes œufs : le stock repart de ce nombre.':'Compte les œufs que tu as en ce moment (avec ceux ramassés aujourd’hui) pour démarrer le suivi.'}</p>
     <div style="display:flex;gap:8px;align-items:flex-end"><div class="field" style="flex:1"><label>Nombre d’œufs</label><input id="frN" type="number" inputmode="numeric" min="0" placeholder="ex : 18"></div>
     <button class="btn small" style="height:46px" data-act="frigoset">OK</button>${F?'<button class="btn ghost small" style="height:46px" data-act="frigocancel">Annuler</button>':''}</div></div>`;
-  const u=usedOn(today()),old=F.vieux,oa=old?diffDays(old.d,today()):0;
+  const u=((rec(today())||{}).g||0)+usedOn(today()),old=F.vieux,oa=old?diffDays(old.d,today()):0;
   return`<div class="card"><div class="top2"><h2 style="margin:0">🧊 ${F.n} œuf${F.n>1?'s':''} au frigo</h2><button class="x" style="font-size:13px;font-weight:600" data-act="frigoedit">Recompter</button></div>
   ${F.n?`<div class="fr"><span class="up">● ${F.frais} extra-frais</span><span>● ${F.moyen} de 10 à 21 j</span><span class="${F.vieuxN?'down':''}">● ${F.vieuxN} de plus de 21 j</span></div>
   <p class="tip" style="margin:6px 0 10px">Le plus ancien : ${old.init?'au moins ':''}<b>${oa} jour${oa>1?'s':''}</b> (${dShort(old.d)}).${F.vieuxN?' Utilise-les en premier, plutôt en pâtisserie ou bien cuits.':''}</p>`:'<p class="tip" style="margin:6px 0 10px">Frigo vide 🥲</p>'}
-  <div class="m" style="margin-bottom:6px">J’en ai utilisé${u?` (${u} aujourd’hui)`:''} :</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[1,2,3,6].map(n=>`<button class="chip" data-act="useggs" data-n="${n}">−${n}</button>`).join('')}${u?'<button class="chip" data-act="useggs" data-n="-1" aria-label="Annuler un">↺</button>':''}</div></div>`}
+  <div class="m" style="margin-bottom:6px">Je prends pour moi${u?` (${u} gardés aujourd’hui)`:''} :</div><div style="display:flex;gap:6px;flex-wrap:wrap">${[1,2,3,6].map(n=>`<button class="chip" data-act="useggs" data-n="${n}">−${n}</button>`).join('')}${u?'<button class="chip" data-act="useggs" data-n="-1" aria-label="Annuler un">↺</button>':''}</div></div>`}
 
 /* ---------- vue Jour ---------- */
 function vJour(){
@@ -537,7 +536,7 @@ function vJour(){
       <div class="egg">${eggSvg}<input id="r" type="number" inputmode="numeric" min="0" value="${x?r:''}" placeholder="0" aria-label="Œufs récoltés"></div>
       <button class="cbtn plus" data-act="inc" data-n="1" aria-label="Plus un">+</button>
     </div>
-    <div class="hint">${x?`<b>${r}</b> œuf${r>1?'s':''} récolté${r>1?'s':''}${(()=>{const g=Math.max(0,r-(x.v||0)-(x.dn||0)-(x.c||0));return` → <b>${g}</b> gardé${g>1?'s':''}${x.c?` · ${x.c} perdu${x.c>1?'s':''}`:''}`})()}`:'Touche + ou tape le nombre'}${hens?` · ${hens} poule${hens>1?'s':''} · ${fmt(r/hens*100)} % de ponte`:''}</div>
+    <div class="hint">${x?`<b>${r}</b> œuf${r>1?'s':''} récolté${r>1?'s':''}`:'Touche + ou tape le nombre'}${hens?` · ${hens} poule${hens>1?'s':''} · ${fmt(r/hens*100)} % de ponte`:''}</div>
     <div class="quick">${Array.from({length:Math.min(7,Math.max(hens,6)+1)},(_,n)=>n).slice(-7).map(n=>`<button class="chip ${x&&r===n?'on':''}" data-act="setr" data-n="${n}">${n}</button>`).join('')}</div>
   </div>
   ${isToday&&(()=>{const sa=stockAliment();return sa&&sa.jours!=null&&sa.jours<=7})()?`<div class="card duecard"><div class="row"><span>🌾 Plus que <b>${stockAliment().jours} jour${stockAliment().jours>1?'s':''}</b> d’aliment (≈ ${fmt(stockAliment().stock,1)} kg)</span><button class="btn small" data-act="gobudgetalim">Voir</button></div></div>`:''}
@@ -545,10 +544,11 @@ function vJour(){
   <div class="card">
     <div class="fields">
       <div class="f3 full">
-      <div class="field"><label>🏠 Gardés</label><input id="gk" type="number" inputmode="numeric" min="0" value="${x&&x.g!=null?x.g:''}" placeholder="${x?Math.max(0,x.r-(x.v||0)-(x.dn||0)-(x.g==null?(x.c||0):0)):0}"></div>
+      <div class="field"><label>🏠 Gardés</label><input id="gk" type="number" inputmode="numeric" min="0" value="${x&&x.g?x.g:''}" placeholder="0"></div>
       <div class="field"><label>💶 Vendus</label><input id="v" type="number" inputmode="numeric" min="0" value="${x&&x.v?x.v:''}" placeholder="0"></div>
       <div class="field"><label>🎁 Donnés</label><input id="dn" type="number" inputmode="numeric" min="0" value="${x&&x.dn?x.dn:''}" placeholder="0"></div>
       </div>
+      <p class="tip full" style="margin:-2px 0 0">Gardés, vendus et donnés : les œufs sortis de ton stock aujourd’hui, même s’ils ont été pondus avant.</p>
       <div class="field full"><label>Note (météo, mue, poule couveuse…)</label><textarea id="note" rows="1" placeholder="Optionnel">${esc(x?x.note:'')}</textarea></div>
     </div>
     ${x?`<button class="btn ghost small" style="margin-top:10px" data-act="clear">Effacer ce jour</button>`:''}
@@ -597,7 +597,7 @@ function vMois(){
   <div class="card" style="margin-top:12px"><h2>Ponte jour par jour</h2>${barChart(vals,lab,{h:130})}</div>
   <div class="card"><h2>Calendrier</h2>${cal}<p class="tip" style="margin:8px 0 0">Touche un jour pour le modifier. 🦊 = prédateur signalé · ⚠️ = poule manquante au comptage.</p></div>
   <div class="card"><h2>💶 Argent du mois</h2>
-    <div class="row"><span>Œufs gardés / vendus / donnés / perdus</span><b>${fmt(Math.max(0,st.tot-st.c-st.v-st.dn))} / ${fmt(st.v)} / ${fmt(st.dn)} / ${fmt(st.c)}</b></div>
+    <div class="row"><span>Œufs gardés / vendus / donnés</span><b>${fmt(st.g)} / ${fmt(st.v)} / ${fmt(st.dn)}</b></div>
     <div class="row"><span>Recettes</span><b class="up">+${eur(st.rev)}</b></div>
     <div class="row"><span>Dépenses</span><b class="down">−${eur(st.dep)}</b></div>
     <div class="row"><span>Coût de revient d’un œuf</span><b>${st.tot?eur(st.dep/st.tot):'—'}</b></div>
@@ -806,7 +806,7 @@ function budget(per){
   keys.forEach(k=>{const M=S.months[k];const st=monthStats(k);let d=0,ra=0;
     (M&&M.depenses||[]).forEach((e,i)=>{const c=catOf(e),m=Number(e.m)||0;r.cats[c]=(r.cats[c]||0)+m;d+=m;r.deps.push({...e,k,i,cat:c})});
     (M&&M.recettes||[]).forEach((e,i)=>{const m=Number(e.m)||0;ra+=m;r.recs.push({...e,k,i})});
-    r.oeufs+=st.tot;r.vendus+=st.v;r.gardes+=Math.max(0,st.tot-st.c-st.v-st.dn);r.donnes=(r.donnes||0)+st.dn;r.ventesOeufs+=st.v*prix;r.recAutres+=ra;r.dep+=d;
+    r.oeufs+=st.tot;r.vendus+=st.v;r.gardes+=st.g;r.donnes=(r.donnes||0)+st.dn;r.ventesOeufs+=st.v*prix;r.recAutres+=ra;r.dep+=d;
     r.mois.push({k,dep:d,rec:st.v*prix+ra,oeufs:st.tot})});
   r.rec=r.ventesOeufs+r.recAutres;r.benef=r.rec-r.dep;r.economie=r.gardes*mag;r.gainReel=r.benef+r.economie;
   r.coutOeuf=r.oeufs?r.dep/r.oeufs:null;
@@ -1048,16 +1048,18 @@ document.addEventListener('click',async e=>{
   else if(a==='cvadd'){const c=S.couvees.list.find(c=>c.id===b.dataset.id);const hatch=addDays(c.debut,ESP[c.esp].d);const k=flock().filter(x=>x.type==='poussin').length;
     for(let i=0;i<Number(c.eclos);i++)saveAnimal({id:uid(),type:'poussin',statut:'vivant',nom:'Poussin '+(k+i+1),race:c.esp==='poule'?'':ESP[c.esp].n,naiss:hatch,notes:'Né de la couvée du '+dShort(c.debut)});
     c.ajoutes=true;saveCouvees();S.view='basse';S.flockFilter='vivants';toast(c.eclos+' poussins ajoutés');render();window.scrollTo(0,0)}
-  else if(a==='csv'){let csv='date;recoltes;casses;vendus;donnes;utilises;note\n';Object.keys(S.months).sort().forEach(k=>{const days=S.months[k].days||{};Object.keys(days).sort().forEach(d=>{const x=days[d];csv+=`${k}-${d};${x.r||0};${x.c||0};${x.v||0};${x.dn||0};${usedOn(k+'-'+d)};"${String(x.note||'').replace(/"/g,'""')}"\n`})});
+  else if(a==='csv'){let csv='date;recoltes;casses;vendus;donnes;gardes;note\n';Object.keys(S.months).sort().forEach(k=>{const days=S.months[k].days||{};Object.keys(days).sort().forEach(d=>{const x=days[d];csv+=`${k}-${d};${x.r||0};${x.c||0};${x.v||0};${x.dn||0};${gardesDe(x)+usedOn(k+'-'+d)};"${String(x.note||'').replace(/"/g,'""')}"\n`})});
     if(!(await copy(csv))){const o=document.getElementById('csvOut');o.style.display='block';o.value=csv;o.select()}}
   else if(a==='csvanimals'){const q=v=>'"'+String(v||'').replace(/"/g,'""')+'"';let csv='nom;type;race;naissance;arrivee;statut;date_fin;cause;notes\n';
     flock().forEach(x=>{csv+=[q(x.nom),x.type,q(x.race),birth(x)||'',x.arrivee||'',x.statut,x.fin||'',q(x.cause),q(x.notes)].join(';')+'\n'});
     if(!(await copy(csv))){const o=document.getElementById('csvOut');o.style.display='block';o.value=csv;o.select()}}
   else if(a==='frigoset'){const v=document.getElementById('frN').value;const n=parseInt(v);if(v===''||!(n>=0)){toast('Indique le nombre d’œufs');return}
-    S.frigo.ctrl=(S.frigo.ctrl||[]).concat({date:today(),n}).slice(-30);setEv(today(),e=>{delete e.u});save('frigo');S.frigoEdit=false;toast('🧊 '+n+' œufs au frigo');render()}
+    S.frigo.ctrl=(S.frigo.ctrl||[]).concat({date:today(),n}).slice(-30);setEv(today(),e=>{delete e.u});if(rec(today()))setDay(today(),{gAfter:0},false);save('frigo');S.frigoEdit=false;toast('🧊 '+n+' œufs au frigo');render()}
   else if(a==='frigoedit'){S.frigoEdit=true;render()}
   else if(a==='frigocancel'){S.frigoEdit=false;render()}
-  else if(a==='useggs'){const F=frigo();if(n>0&&F&&n>F.n){toast('Il n’y a que '+F.n+' œufs au frigo');return}setEv(today(),e=>{e.u=Math.max(0,(Number(e.u)||0)+n);if(!e.u)delete e.u});render()}
+  else if(a==='useggs'){const F=frigo();if(n>0&&F&&n>F.n){toast('Il n’y a que '+F.n+' œufs au frigo');return}const x=rec(today());
+    if(n<0&&usedOn(today())>0&&!(x&&x.g)){setEv(today(),e=>{e.u=Math.max(0,(Number(e.u)||0)+n);if(!e.u)delete e.u});render();return}
+    const patch={g:Math.max(0,((x&&x.g)||0)+n)};if(F&&F.ctrl.date===today())patch.gAfter=Math.max(0,((x&&x.gAfter)||0)+n);setDay(today(),patch)}
   else if(a==='openappel'){S.sheet='appel';render()}
   else if(a==='toggleappel'){const id=b.dataset.id;setEv(S.sel,e=>{e.appel=e.appel||{ids:[]};const i=e.appel.ids.indexOf(id);if(i<0)e.appel.ids.push(id);else e.appel.ids.splice(i,1);e.appel.t=nowHM()});render()}
   else if(a==='appelall'){const all=aliveForCount(S.sel).map(x=>x.id);setEv(S.sel,e=>{const full=e.appel&&all.every(i=>e.appel.ids.includes(i));e.appel={ids:full?[]:all,t:nowHM()}});render()}
@@ -1120,7 +1122,7 @@ document.addEventListener('input',e=>{
 });
 document.addEventListener('change',async e=>{
   const t=e.target,id=t.id;
-  if(['r','c','v','dn','gk'].includes(id)){if(t.value==='')setDay(S.sel,id==='gk'?{g:''}:{[id]:0});else render()}
+  if(['r','c','v','dn','gk'].includes(id)){if(t.value==='')setDay(S.sel,id==='gk'?{g:0}:{[id]:0});else render()}
   else if(id==='f_photo'&&t.files&&t.files[0]){try{grabForm();S.edit.draft.photo=await readPhoto(t.files[0]);render()}catch(err){toast('Photo illisible')}}
   else if(id==='f_naiss'||id==='f_arr'||id==='f_agearr'||id==='f_fin'){grabForm();const a=S.edit.draft,bx=document.querySelector('.sheet .agebox');if(bx){const bb=birth(a);bx.innerHTML=`Âge : <b>${ageStr(bb,a.statut!=='vivant'&&a.fin?a.fin:today())}</b>${bb?` <span class="m">(né·e vers le ${dLong(bb)})</span>`:''}`}}
   else if(id==='cv_n'){S.cvForm.n=t.value}
